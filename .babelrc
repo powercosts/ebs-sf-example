@@ -1,0 +1,23 @@
+{
+  "presets": [
+    [
+      "@babel/env",
+      {
+        "targets": {
+          "node": "8.10"
+        },
+        "useBuiltIns": "usage",
+        "debug": false
+      }
+    ]
+  ],
+  "plugins": [
+    [
+      "@babel/proposal-object-rest-spread",
+      {
+        "useBuiltIns": true
+      }
+    ],
+    "@babel/proposal-class-properties"
+  ]
+}

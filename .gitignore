@@ -1,0 +1,13 @@
+# package directories
+node_modules
+jspm_packages
+lib
+
+# Serverless directories
+.serverless
+
+# Webpack directories
+.webpack
+.cache-loader
+
+yarn-error.log

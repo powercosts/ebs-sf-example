@@ -1,0 +1,430 @@
+service:
+  name: ebs-sf-example
+
+plugins:
+  - serverless-webpack
+  - serverless-step-functions
+  - serverless-pseudo-parameters
+
+provider:
+  name: aws
+  runtime: nodejs8.10
+  versionFunctions: false
+  stage: dev
+  region: us-west-2
+  memorySize: 128
+  endpointType: regional
+  timeout: 15
+  cfLogs: true
+  logRetentionInDays: 7
+
+custom:
+  name: ${self:service.name}-${opt:stage, self:provider.stage}
+  function-arn: arn:aws:lambda:#{AWS::Region}:#{AWS::AccountId}:function:${self:custom.name}
+  instance-state:
+    running:
+      name: 'running'
+      type: 'START'
+    stopped:
+      name: 'stopped'
+      type: 'STOP'
+    terminated:
+      name: 'terminated'
+      type: 'TERMINATE'
+  status:
+    success: 'SUCCESS'
+    failed: 'FAILED'
+    in-progress: 'IN_PROGRESS'
+    unknown: 'UNKNOWN'
+  notification:
+    online: 'ONLINE'
+    offline: 'OFFLINE'
+    terminated: 'TERMINATED'
+    error: 'ERROR'
+  webpack:
+    packager: yarn
+    webpackConfig: webpack.config.js
+
+package:
+  individually: true
+
+functions:
+  Iterate:
+    handler: src/functions/iterate.handler
+    description: Transitions an iterator to the next iteration.
+
+stepFunctions:
+  stateMachines:
+    StopInstances:
+      role: arn:aws:iam::#{AWS::AccountId}:role/${self:custom.name}-StepFunctionExecution
+      name: ${self:custom.name}-StopInstances
+      definition:
+        Comment: 'A state machine to stop instances.'
+        StartAt: SetEC2TargetStatus
+        States:
+          SetEC2TargetStatus:
+            Type: Pass
+            Result: ${self:custom.instance-state.stopped}
+            ResultPath: '$.targetStatus'
+            Next: CheckEC2TargetStatus
+          CheckEC2TargetStatus:
+            Type: Task
+            Resource: ${self:custom.function-arn}-CheckEC2TargetStatus
+            Next: EvaluateEC2TargetStatus
+            ResultPath: '$.onEC2TargetStatus'
+            Retry: ${file(common.yml):reqLimitRetry}
+          EvaluateEC2TargetStatus:
+            Type: Choice
+            Choices:
+              - Variable: '$.onEC2TargetStatus'
+                BooleanEquals: false
+                Next: StopInstances
+              - Variable: '$.onEC2TargetStatus'
+                BooleanEquals: true
+                Next: SetNotificationType
+          StopInstances:
+            Type: Task
+            Resource: ${self:custom.function-arn}-StopInstances
+            Next: WaitForInstancesStop
+            Retry: ${file(common.yml):reqLimitRetry}
+          WaitForInstancesStop:
+            Type: Wait
+            Seconds: 15
+            Next: CheckInstancesStopped
+          CheckInstancesStopped:
+            Type: Task
+            Resource: ${self:custom.function-arn}-CheckInstancesStopped
+            Next: EvaluateInstancesStopped
+            Retry: ${file(common.yml):reqLimitRetry}
+          EvaluateInstancesStopped:
+            Type: Choice
+            Choices:
+              - Variable: '$.instanceShutdownStatus'
+                StringEquals: ${self:custom.status.failed}
+                Next: StopInstancesFailure
+              - Variable: '$.instanceShutdownStatus'
+                StringEquals: ${self:custom.status.success}
+                Next: DetachVolumes
+            Default: WaitForInstancesStop
+          DetachVolumes:
+            Type: Task
+            Resource: ${self:custom.function-arn}-DetachVolumes
+            Retry: ${file(common.yml):reqLimitRetry}
+            Next: WaitForDetach
+          WaitForDetach:
+            Type: Wait
+            Seconds: 10
+            Next: CheckVolumesAvailable
+          CheckVolumesAvailable:
+            Type: Task
+            Resource: ${self:custom.function-arn}-CheckVolumesAvailable
+            ResultPath: '$.volDetachStatus'
+            Next: EvaluateDetachStatus
+            Retry: ${file(common.yml):reqLimitRetry}
+          EvaluateDetachStatus:
+            Type: Choice
+            Choices:
+              - Variable: '$.volDetachStatus'
+                StringEquals: ${self:custom.status.failed}
+                Next: StopInstancesFailure
+              - Variable: '$.volDetachStatus'
+                StringEquals: ${self:custom.status.success}
+                Next: CreateSnapshot
+            Default: WaitForDetach
+          CreateSnapshot:
+            Type: Task
+            Resource: ${self:custom.function-arn}-CreateSnapshot
+            Next: CreateSnapshotIterator
+            Retry: ${file(common.yml):reqLimitRetry}
+          CreateSnapshotIterator:
+            Type: Task
+            Resource: ${self:custom.function-arn}-Iterate
+            InputPath: '$.snapshotCreateIterator'
+            ResultPath: '$.snapshotCreateIterator'
+            Next: IsCreateSnapshotIterationComplete
+            Retry: ${file(common.yml):reqLimitRetry}
+          IsCreateSnapshotIterationComplete:
+            Type: Choice
+            Choices:
+              - Variable: '$.snapshotCreateIterator.continue'
+                BooleanEquals: true
+                Next: CreateSnapshot
+            Default: WaitForSnapshotsCreate
+          WaitForSnapshotsCreate:
+            Type: Wait
+            Seconds: 60
+            Next: CheckSnapshotsCreateStatus
+          CheckSnapshotsCreateStatus:
+            Type: Task
+            Resource: ${self:custom.function-arn}-CheckSnapshotsCreateStatus
+            Next: EvaluateSnapshotsCreateStatus
+            ResultPath: '$.snapshotStatus'
+            Retry: ${file(common.yml):reqLimitRetry}
+          EvaluateSnapshotsCreateStatus:
+            Type: Choice
+            Choices:
+              - Variable: '$.snapshotStatus'
+                StringEquals: ${self:custom.status.failed}
+                Next: StopInstancesFailure
+              - Variable: '$.snapshotStatus'
+                StringEquals: ${self:custom.status.success}
+                Next: DeleteVolume
+            Default: WaitForSnapshotsCreate
+          StopInstancesFailure:
+            Type: Fail
+            Cause: 'Error stopping instances.'
+          DeleteVolume:
+            Type: Task
+            Resource: ${self:custom.function-arn}-DeleteVolume
+            Retry: ${file(common.yml):reqLimitRetry}
+            Next: DeleteVolumeIterator
+          DeleteVolumeIterator:
+            Type: Task
+            Resource: ${self:custom.function-arn}-Iterate
+            InputPath: '$.volumeDestroyIterator'
+            ResultPath: '$.volumeDestroyIterator'
+            Next: IsDeleteVolumeIterationComplete
+            Retry: ${file(common.yml):reqLimitRetry}
+          IsDeleteVolumeIterationComplete:
+            Type: Choice
+            Choices:
+              - Variable: '$.volumeDestroyIterator.continue'
+                BooleanEquals: true
+                Next: DeleteVolume
+            Default: SetNotificationType
+          SetNotificationType:
+            Type: Pass
+            Result: ${self:custom.notification.offline}
+            ResultPath: '$.notification.name'
+            Next: SendOfflineNotification
+          SendOfflineNotification:
+            Type: Task
+            Resource: ${self:custom.function-arn}-SendUserNotification
+            Retry: ${file(common.yml):reqLimitRetry}
+            Next: InstancesStopped
+          InstancesStopped:
+            Type: Succeed
+    StartInstances:
+      role: arn:aws:iam::#{AWS::AccountId}:role/${self:custom.name}-StepFunctionExecution
+      name: ${self:custom.name}-StartInstances
+      definition:
+        Comment: 'A state machine to start instances.'
+        StartAt: SetEC2TargetStatus
+        States:
+          SetEC2TargetStatus:
+            Type: Pass
+            Result: ${self:custom.instance-state.running}
+            ResultPath: '$.targetStatus'
+            Next: CheckEC2TargetStatus
+          CheckEC2TargetStatus:
+            Type: Task
+            Resource: ${self:custom.function-arn}-CheckEC2TargetStatus
+            Next: EvaluateEC2TargetStatus
+            ResultPath: '$.onEC2TargetStatus'
+            Retry: ${file(common.yml):reqLimitRetry}
+          EvaluateEC2TargetStatus:
+            Type: Choice
+            Choices:
+              - Variable: '$.onEC2TargetStatus'
+                BooleanEquals: false
+                Next: CreateVolume
+              - Variable: '$.onEC2TargetStatus'
+                BooleanEquals: true
+                Next: SetNotificationType
+          CreateVolume:
+            Type: Task
+            Resource: ${self:custom.function-arn}-CreateVolume
+            Next: CreateVolumeIterator
+            ResultPath: '$.snapshots'
+            Retry: ${file(common.yml):reqLimitRetry}
+          CreateVolumeIterator:
+            Type: Task
+            Resource: ${self:custom.function-arn}-Iterate
+            InputPath: '$.volumeCreateIterator'
+            ResultPath: '$.volumeCreateIterator'
+            Next: IsCreateVolumeIterationComplete
+            Retry: ${file(common.yml):reqLimitRetry}
+          IsCreateVolumeIterationComplete:
+            Type: Choice
+            Choices:
+              - Variable: '$.volumeCreateIterator.continue'
+                BooleanEquals: true
+                Next: CreateVolume
+            Default: WaitForVolumesCreate
+          WaitForVolumesCreate:
+            Type: Wait
+            Seconds: 5
+            Next: CheckVolumesAvailable
+          CheckVolumesAvailable:
+            Type: Task
+            InputPath: '$.snapshots'
+            Resource: ${self:custom.function-arn}-CheckVolumesAvailable
+            Next: EvaluateVolumesCreated
+            ResultPath: '$.volCreateStatus'
+            Retry: ${file(common.yml):reqLimitRetry}
+          EvaluateVolumesCreated:
+            Type: Choice
+            Choices:
+              - Variable: '$.volCreateStatus'
+                StringEquals: ${self:custom.status.failed}
+                Next: StartInstancesFailure
+              - Variable: '$.volCreateStatus'
+                StringEquals: ${self:custom.status.success}
+                Next: AttachVolumes
+            Default: WaitForVolumesCreate
+          AttachVolumes:
+            Type: Task
+            Resource: ${self:custom.function-arn}-AttachVolumes
+            Next: StartInstances
+            Retry: ${file(common.yml):reqLimitRetry}
+          StartInstancesFailure:
+            Type: Fail
+            Cause: 'Error starting Instances.'
+          StartInstances:
+            Type: Task
+            Resource: ${self:custom.function-arn}-StartInstances
+            Next: WaitForInstancesOnline
+            Retry: ${file(common.yml):reqLimitRetry}
+          WaitForInstancesOnline:
+            Type: Wait
+            Seconds: 60
+            Next: CheckInstancesOnline
+          CheckInstancesOnline:
+            Type: Task
+            Resource: ${self:custom.function-arn}-CheckInstancesOnline
+            ResultPath: '$.instancesOnline'
+            Next: EvaluateInstancesOnline
+            Retry: ${file(common.yml):reqLimitRetry}
+          EvaluateInstancesOnline:
+            Type: Choice
+            Choices:
+              - Variable: '$.instancesOnline'
+                StringEquals: ${self:custom.notification.online}
+                Next: SetNotificationType
+            Default: WaitForInstancesOnline
+          SetNotificationType:
+            Type: Pass
+            Result: ${self:custom.notification.online}
+            ResultPath: '$.notification.name'
+            Next: SendOnlineNotification
+          SendOnlineNotification:
+            Type: Task
+            Resource: ${self:custom.function-arn}-SendUserNotification
+            Retry: ${file(common.yml):reqLimitRetry}
+            Next: DeleteSnapshots
+          DeleteSnapshots:
+            Type: Task
+            Resource: ${self:custom.function-arn}-DeleteSnapshots
+            Next: InstancesStarted
+            Retry: ${file(common.yml):reqLimitRetry}
+          InstancesStarted:
+            Type: Succeed
+    TerminateInstances:
+      role: arn:aws:iam::#{AWS::AccountId}:role/${self:custom.name}-StepFunctionExecution
+      name: ${self:custom.name}-TerminateInstances
+      definition:
+        Comment: 'A state machine to terminate instances.'
+        StartAt: CheckInstancesExist
+        States:
+          CheckInstancesExist:
+            Type: Task
+            Resource: ${self:custom.function-arn}-CheckInstancesExist
+            ResultPath: '$.instancesExist'
+            Next: EvaluateInstancesExist
+            Retry: ${file(common.yml):reqLimitRetry}
+          EvaluateInstancesExist:
+            Type: Choice
+            Choices:
+              - Variable: '$.instancesExist'
+                BooleanEquals: false
+                Next: DeleteSnapshots
+              - Variable: '$.instancesExist'
+                BooleanEquals: true
+                Next: SetEC2TargetStatus
+          SetEC2TargetStatus:
+            Type: Pass
+            Result: ${self:custom.instance-state.terminated}
+            ResultPath: '$.targetStatus'
+            Next: CheckEC2TargetStatus
+          CheckEC2TargetStatus:
+            Type: Task
+            Resource: ${self:custom.function-arn}-CheckEC2TargetStatus
+            Next: EvaluateEC2TargetStatus
+            ResultPath: '$.onEC2TargetStatus'
+            Retry: ${file(common.yml):reqLimitRetry}
+          EvaluateEC2TargetStatus:
+            Type: Choice
+            Choices:
+              - Variable: '$.onEC2TargetStatus'
+                BooleanEquals: false
+                Next: TerminateInstances
+              - Variable: '$.onEC2TargetStatus'
+                BooleanEquals: true
+                Next: SetNotificationType
+          TerminateInstances:
+            Type: Task
+            Resource: ${self:custom.function-arn}-TerminateInstances
+            Next: WaitForInstancesTermination
+            ResultPath: '$.instances'
+            Retry: ${file(common.yml):reqLimitRetry}
+          WaitForInstancesTermination:
+            Type: Wait
+            Seconds: 30
+            Next: CheckInstancesTerminated
+          CheckInstancesTerminated:
+            Type: Task
+            ResultPath: '$.instancesTerminated'
+            Resource: ${self:custom.function-arn}-CheckInstancesTerminated
+            Next: EvaluateInstancesTermination
+            Retry: ${file(common.yml):reqLimitRetry}
+          EvaluateInstancesTermination:
+            Type: Choice
+            Choices:
+              - Variable: '$.instancesTerminated'
+                BooleanEquals: false
+                Next: WaitForInstancesTermination
+              - Variable: '$.instancesTerminated'
+                BooleanEquals: true
+                Next: DeleteSnapshots
+          DeleteSnapshots:
+            Type: Task
+            Resource: ${self:custom.function-arn}-DeleteSnapshots
+            Next: SetNotificationType
+            Retry: ${file(common.yml):reqLimitRetry}
+          SetNotificationType:
+            Type: Pass
+            Result: ${self:custom.notification.terminated}
+            ResultPath: '$.notification.name'
+            Next: SendTerminatedNotification
+          SendTerminatedNotification:
+            Type: Task
+            Resource: ${self:custom.function-arn}-SendUserNotification
+            Retry: ${file(common.yml):reqLimitRetry}
+            Next: InstancesTerminated
+          InstancesTerminated:
+            Type: Succeed
+
+resources:
+  Resources:
+    StepFunctionExecutionRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: ${self:custom.name}-StepFunctionExecution
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - states.#{AWS::Region}.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: ${self:custom.name}-InvokeFunctions
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - lambda:InvokeFunction
+                  Resource:
+                    - ${self:custom.function-arn}-*

@@ -1,0 +1,14 @@
+reqLimitRetry:
+  - ErrorEquals:
+      - RequestLimitExceeded
+      - ThrottlingException
+      - SnapshotCreationPerVolumeRateExceeded
+      - Lambda.SdkClientException
+      - Lambda.AWSLambdaException
+      - Lambda.ServiceException
+      - Throttling
+      - PriorRequestNotComplete
+      - Lambda.Unknown
+    IntervalSeconds: 10
+    MaxAttempts: 10
+    BackoffRate: 2
