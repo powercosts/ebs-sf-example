@@ -13,7 +13,7 @@
     "@babel/preset-env": "^7.1.0",
     "@types/aws-lambda": "^8.10.15",
     "babel-loader": "^8.0.4",
-    "cache-loader": "^1.2.5",
+    "cache-loader": "^4.1.0",
     "serverless-pseudo-parameters": "^2.2.0",
     "serverless-step-functions": "^1.8.0",
     "serverless-webpack": "^5.2.0",
