@@ -1217,10 +1217,10 @@ arrify@^1.0.0:
   resolved "https://registry.yarnpkg.com/arrify/-/arrify-1.0.1.tgz#898508da2226f380df904728456849c1501a4b0d"
   integrity sha1-iYUI2iIm84DfkEcoRWhJwVAaSw0=
 
-asl-validator@^1.4.1:
-  version "1.4.2"
-  resolved "https://registry.yarnpkg.com/asl-validator/-/asl-validator-1.4.2.tgz#1a691d01ce23bd03c601d26337b0a1157c4e6048"
-  integrity sha512-ZI+hq6SJVPhJR6uEaMQ5pzbM7T2KFggjxli9thKNlnOMvWnWuZmhQP5SZu/722LlYllHUEzlL9x5oIm/uiFmSw==
+asl-validator@^1.5.0:
+  version "1.5.0"
+  resolved "https://registry.yarnpkg.com/asl-validator/-/asl-validator-1.5.0.tgz#f19510ae1ec1f3c1e56b9a606f50747c1471a2ff"
+  integrity sha512-NLiJXij88A/NlsxvUElRRmymabyBk2psXsqkUMWJommbeSxeXUrCwgm72oM5Bb4Mbt0XHgJMeRhLaWzTpyJI0g==
   dependencies:
     ajv "^6.10.2"
     commander "^2.20.0"
@@ -5397,13 +5397,13 @@ serverless-pseudo-parameters@^2.5.0:
   resolved "https://registry.yarnpkg.com/serverless-pseudo-parameters/-/serverless-pseudo-parameters-2.5.0.tgz#f30bf34db166e4b8b22144a8e65aca71b90dd1e6"
   integrity sha512-A/O49AR8LL6jlnPSmnOTYgL1KqVgskeRla4sVDeS/r5dHFJlwOU5MgFilc7aaQP8NWAwRJANaIS9oiSE3I+VUA==
 
-serverless-step-functions@^2.8.0:
-  version "2.8.0"
-  resolved "https://registry.yarnpkg.com/serverless-step-functions/-/serverless-step-functions-2.8.0.tgz#3df805820ddd686380bb54ace5c7ebc74cd0f572"
-  integrity sha512-4+V8KYzCs2FTucNAXcqeC/w9qtVWzeaiNPu/c+J39Qq4SZbQIq3SdHOUyaThILr+uNfkhT9B/YsGmtvB0CoqeA==
+serverless-step-functions@^2.10.0:
+  version "2.10.0"
+  resolved "https://registry.yarnpkg.com/serverless-step-functions/-/serverless-step-functions-2.10.0.tgz#816b33b89f7268b396dd2d38279dfae615e0bceb"
+  integrity sha512-aX8RJmgSHXA+ZFGaikw8Z2cdE4ZFPu/SOWarYV17RdDxAEu9IMvN28C0AH4tFK3HhkHcmEOV1zyPFGYJPlapIg==
   dependencies:
     "@hapi/joi" "^15.0.2"
-    asl-validator "^1.4.1"
+    asl-validator "^1.5.0"
     aws-sdk "^2.282.1"
     bluebird "^3.4.0"
     chalk "^1.1.1"
