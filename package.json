@@ -11,7 +11,7 @@
     "@babel/plugin-proposal-object-rest-spread": "^7.6.2",
     "@babel/polyfill": "^7.6.0",
     "@babel/preset-env": "^7.6.3",
-    "@types/aws-lambda": "^8.10.36",
+    "@types/aws-lambda": "^8.10.68",
     "babel-loader": "^8.0.4",
     "cache-loader": "^4.1.0",
     "serverless-pseudo-parameters": "^2.5.0",
